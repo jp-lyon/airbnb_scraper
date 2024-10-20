@@ -6,7 +6,8 @@
 
 Básicamente:
 
-- **Carga archivos JSON** que contienen URLs de Airbnb con diferentes niveles de zoom en Bogotá. __(para ello es necesario ejecutar generador_urls.py, previamente)__
+- **Carga archivos JSON** que contienen URLs de Airbnb con diferentes niveles de zoom en Bogotá. __(para ello es necesario ejecutar [generador_urls.py](scripts/generador_urls.py)
+, previamente)__
 - Usa **Selenium** para navegar por esas URLs.
 - **Extrae información** de las tarjetas de los listados en cada página, como:
   - ID del listado
@@ -28,7 +29,8 @@ LA idea es iterar hasya que se tenga un nivel de zoom satisfactorio
    - Selenium
    - Firefox y geckodriver
    - Pandas
-2. Asegúrate de tener los **archivos JSON, es decir ejecuta generador_urls.py** con las URLs que quieres visitar. En este caso, los archivos son:
+2. Asegúrate de tener los **archivos JSON, es decir ejecuta [generador_urls.py](scripts/generador_urls.py)
+** con las URLs que quieres visitar. En este caso, los archivos son:
    - `airbnb_urls_bogota_zoom_14.json`
    - `airbnb_urls_bogota_zoom_16.json`
    - `airbnb_urls_bogota_zoom_18.json`
