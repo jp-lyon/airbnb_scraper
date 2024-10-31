@@ -22,6 +22,10 @@ import pandas as pd
 from urllib.parse import urlparse, parse_qs
 from tqdm import tqdm  # Importar tqdm para la barra de progreso
 
+from bs4 import BeautifulSoup
+import requests
+
+
 # Configuración de Logging
 logging.basicConfig(
     level=logging.INFO,
@@ -32,6 +36,52 @@ logging.basicConfig(
     ]
 )
 
+
+
+def extract_first_comment(driver, listing_id):
+    """
+    Extrae la fecha del primer comentario para un listado dado.
+
+    Args:
+        driver: Instancia de Selenium WebDriver
+        listing_id: ID de listado de Airbnb
+
+    Returns:
+        str: Fecha del primer comentario, o None si no se encuentran comentarios
+    """
+    try:
+        review_url = f'https://www.airbnb.com.co/rooms/{listing_id}/reviews'
+        logging.info(f"Accediendo a las reseñas para el listado {listing_id}: {review_url}")
+        
+        # Navegar a la página de reseñas
+        driver.get(review_url)
+        
+        # Esperar a que se carguen los comentarios usando WebDriverWait
+        try:
+            page_source = driver.page_source
+            soup = BeautifulSoup(page_source, 'html.parser')
+        
+            dates_comments = soup.find_all('div', class_='s78n3tv')
+            if dates_comments:
+                last_comment = dates_comments[-1].get_text(strip=True)
+                return last_comment
+            else:
+                logging.warning(f"Texto de fecha de comentario vacío encontrado para el listado {listing_id}")
+                return None
+                
+        except TimeoutException:
+            logging.info(f"No se encontraron comentarios dentro del período de espera para el listado {listing_id}")
+            return None
+        except NoSuchElementException:
+            logging.info(f"No se encontraron comentarios para el listado {listing_id}")
+            return None
+            
+    except Exception as e:
+        logging.error(f"Error al extraer el primer comentario para el listado {listing_id}: {e}", exc_info=True)
+        return None
+
+
+
 # Función para monitorear y loguear el uso de memoria
 def log_memory_usage():
     process = psutil.Process(os.getpid())
@@ -41,6 +91,16 @@ def log_memory_usage():
 # Función para esperar un tiempo específico
 def wait_for_page_load(seconds):
     time.sleep(seconds)
+
+# Funcion que clasifica si es habitacion o apto
+def roomOrHouse(TypeDescription:str)->str:
+    """
+    clasifica descripciones si es habitacion o apto
+    """
+    if TypeDescription.startswith("Habitación"):
+        return "room"
+    else: return "house"
+
 
 # Función para extraer datos de las tarjetas en la página actual
 def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
@@ -74,7 +134,7 @@ def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
                 image = "No image"
 
             try:
-                price = card.find_element(By.CLASS_NAME, "pquyp1l").text
+                price = card.find_element(By.CLASS_NAME, "_11jcbg2").text
             except NoSuchElementException:
                 price = "No price"
 
@@ -82,6 +142,12 @@ def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
                 rating = card.find_element(By.CLASS_NAME, "r4a59j5").text
             except NoSuchElementException:
                 rating = "No rating"
+
+            # Extraer primer comentario     
+            first_comment = None
+            if listing_id != "unknown":
+                first_comment = extract_first_comment(driver, listing_id)
+
 
             # Añadir coordenadas, nivel de zoom e ID extraídos de la URL
             data = {
@@ -92,11 +158,13 @@ def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
                 "image": image,
                 "price": price,
                 "rating": rating,
+                "first_comment_date": first_comment,
                 "sw_lat": sw_lat,
                 "sw_lng": sw_lng,
                 "ne_lat": ne_lat,
                 "ne_lng": ne_lng,
                 "zoom_level": zoom_level,  # Incluir el nivel de zoom
+                "TypeRoomOrHouse": roomOrHouse(description) if description else "unknown"
             }
 
             cards_data.append(data)
@@ -124,7 +192,7 @@ def save_json_data(filepath, data):
 
 # Función para extraer enlaces siguientes y manejarlos eficientemente
 def extract_data_in_groups(driver, json_files):
-    master_filepath = "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_master_listings.json"
+    master_filepath = "./airbnb_master_listings.json"
     master_data = load_json_data(master_filepath)
     logging.info(f"El archivo maestro contiene actualmente {len(master_data)} listados.")
 
@@ -317,10 +385,10 @@ def main():
 
     # Lista de archivos JSON con niveles de zoom (rutas completas)
     json_files = [
-        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_14.json",
-        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_16.json",
-        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_18.json",
-        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_20.json",
+        "./airbnb_urls_bogota_zoom_14.json",
+        "./airbnb_urls_bogota_zoom_16.json",
+        "./airbnb_urls_bogota_zoom_18.json",
+        "./airbnb_urls_bogota_zoom_20.json",
     ]
 
     # Configurar y utilizar el WebDriver dentro de un context manager
