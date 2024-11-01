@@ -39,48 +39,26 @@ logging.basicConfig(
 def scroll_down(driver):
     return 
 
-def extract_first_comment(driver, listing_id):
-    """
-    Extrae la fecha del primer comentario para un listado dado.
-
-    Args:
-        driver: Instancia de Selenium WebDriver
-        listing_id: ID de listado de Airbnb
-
-    Returns:
-        str: Fecha del primer comentario, o None si no se encuentran comentarios
-    """
+def extract_last_comment_date(driver, idPublication: str) -> str:
     try:
-        review_url = f'https://www.airbnb.com.co/rooms/{listing_id}/reviews'
-        logging.info(f"Accediendo a las reseñas para el listado {listing_id}: {review_url}")
+        driver.get(f'https://www.airbnb.com.co/rooms/{idPublication}/reviews')
+        time.sleep(10)
+        page_source = driver.page_source
+        soup = BeautifulSoup(page_source, 'html.parser')
         
-        # Navegar a la página de reseñas
-        driver.get(review_url)
+        dates_comments = soup.find_all('div', class_='s78n3tv')
         
-        # Esperar a que se carguen los comentarios usando WebDriverWait
-        try:
-            page_source = driver.page_source
-            soup = BeautifulSoup(page_source, 'html.parser')
-        
-            dates_comments = soup.find_all('div', class_='s78n3tv')
-            
-            if dates_comments:
-                last_comment = dates_comments[-1].get_text(strip=True)
-                return last_comment
-            else:
-                logging.warning(f"No se encontraron reviews para el listado {listing_id}")
-                return None
-                
-        except TimeoutException:
-            logging.info(f"No se encontraron comentarios dentro del período de espera para el listado {listing_id}")
-            return None
-        except NoSuchElementException:
-            logging.info(f"No se encontraron comentarios para el listado {listing_id}")
-            return None
+        if dates_comments:
+            last_comment = dates_comments[-1].get_text(strip=True)
+            print(f"Último comentario encontrado: {last_comment}")
+            return last_comment
+        else:
+            print(f"No se encontraron comentarios para la publicación {idPublication}")
+            return ""
             
     except Exception as e:
-        logging.error(f"Error al extraer el primer comentario para el listado {listing_id}: {e}", exc_info=True)
-        return None
+        print(f"Error al extraer la fecha del último comentario para la publicación {idPublication}: {e}")
+        return ""
 
 
 # Función para monitorear y loguear el uso de memoria
@@ -102,6 +80,25 @@ def roomOrHouse(TypeDescription:str)->str:
         return "room"
     else: return "house"
 
+def extract_lat_lon(idPublication):
+    attempts = 0
+    success = False
+
+    while not success and attempts < 10:
+        try:
+            URL = 'https://www.airbnb.com.co/rooms/'
+            r = requests.get(URL + str(idPublication))
+            p_lat = compile(r'"lat":([-0-9.]+),')
+            p_lon = compile(r'"lng":([-0-9.]+),')
+            lat = p_lat.findall(r.text)[0]
+            lon = p_lon.findall(r.text)[0]
+            success = True
+            return float(lat), float(lon)
+        except Exception as e:
+            print(f'No hay coordenada, intento número: {attempts + 1}')
+            print(f'Error: {e}')
+            attempts += 1
+    return 0.0, 0.0
 
 # Función para extraer datos de las tarjetas en la página actual
 def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
@@ -143,11 +140,16 @@ def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
                 rating = card.find_element(By.CLASS_NAME, "r4a59j5").text
             except NoSuchElementException:
                 rating = "No rating"
+            try:
+                lat, lon = extract_lat_lon(listing_id)
+            except NoSuchElementException:
+                lat = 0.0
+                lon = 0.0
 
             # Extraer primer comentario     
             first_comment = None
             if listing_id != "unknown":
-                first_comment = extract_first_comment(driver, listing_id)
+                first_comment = extract_last_comment_date(driver, listing_id)
 
 
             # Añadir coordenadas, nivel de zoom e ID extraídos de la URL
@@ -165,7 +167,9 @@ def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
                 "ne_lat": ne_lat,
                 "ne_lng": ne_lng,
                 "zoom_level": zoom_level,  # Incluir el nivel de zoom
-                "TypeRoomOrHouse": roomOrHouse(description) if description else "unknown"
+                "TypeRoomOrHouse": roomOrHouse(description) if description else "unknown",
+                "lat": lat,
+                "lon": lon
             }
 
             cards_data.append(data)

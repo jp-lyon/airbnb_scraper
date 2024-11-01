@@ -54,7 +54,6 @@ def extract_last_comment_date(driver, idPublication: str) -> str:
         dates_comments = soup.find_all('div', class_='s78n3tv')
         
         if dates_comments:
-            # Obtener solo el último comentario
             last_comment = dates_comments[-1].get_text(strip=True)
             print(f"Último comentario encontrado: {last_comment}")
             return last_comment
