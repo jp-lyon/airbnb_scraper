@@ -7,6 +7,8 @@ import random
 import gc
 import logging
 import psutil
+import requests  # Importar requests
+import re        # Importar re
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -32,6 +34,34 @@ logging.basicConfig(
     ]
 )
 
+# Clase AirbnbScraper con el método extract_lat_lon
+class AirbnbScraper:
+    def extract_lat_lon(self, idPublication):
+        attempts = 0
+        success = False
+
+        while not success and attempts < 10:
+            try:
+                URL = 'https://www.airbnb.com.co/rooms/'
+                r = requests.get(URL + str(idPublication))
+                p_lat = re.compile(r'"lat":([-0-9.]+),')
+                p_lon = re.compile(r'"lng":([-0-9.]+),')
+                lat_matches = p_lat.findall(r.text)
+                lon_matches = p_lon.findall(r.text)
+                if lat_matches and lon_matches:
+                    lat = lat_matches[0]
+                    lon = lon_matches[0]
+                    success = True
+                    return float(lat), float(lon)
+                else:
+                    raise ValueError("No se encontraron coordenadas.")
+            except Exception as e:
+                logging.warning(f'No hay coordenada, intento número: {attempts + 1}')
+                logging.warning(f'Error: {e}')
+                attempts += 1
+                time.sleep(1)  # Esperar un segundo antes de reintentar
+        return 0.0, 0.0
+
 # Función para monitorear y loguear el uso de memoria
 def log_memory_usage():
     process = psutil.Process(os.getpid())
@@ -49,6 +79,9 @@ def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
         # Limitar el número de elementos procesados
         cards = driver.find_elements(By.CLASS_NAME, "cy5jw6o")[:100]  # Procesar solo los primeros 100 elementos
         logging.info(f"Encontrados {len(cards)} elementos para procesar.")
+
+        # Instanciar la clase AirbnbScraper
+        scraper = AirbnbScraper()
 
         for card in cards:
             try:
@@ -83,6 +116,9 @@ def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
             except NoSuchElementException:
                 rating = "No rating"
 
+            # Obtener coordenadas usando el método extract_lat_lon
+            lat, lon = scraper.extract_lat_lon(listing_id)
+
             # Añadir coordenadas, nivel de zoom e ID extraídos de la URL
             data = {
                 "id": listing_id,
@@ -92,6 +128,8 @@ def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
                 "image": image,
                 "price": price,
                 "rating": rating,
+                "latitude": lat,
+                "longitude": lon,
                 "sw_lat": sw_lat,
                 "sw_lng": sw_lng,
                 "ne_lat": ne_lat,
@@ -137,7 +175,7 @@ def extract_data_in_groups(driver, json_files):
         with open(json_file, 'r', encoding='utf-8') as file:
             lines = file.readlines()
             random.shuffle(lines)  # Mezclar líneas para evitar patrones
-            
+
             # Barra de progreso para las líneas dentro del archivo JSON
             for line in tqdm(lines, desc=f"Procesando {os.path.basename(json_file)}", unit="línea", leave=False):
                 try:
@@ -189,7 +227,6 @@ def extract_data_in_groups(driver, json_files):
                 continue
 
             logging.info(f"Procesando link: {current_link} con coordenadas: {sw_lat}, {sw_lng}, {ne_lat}, {ne_lng}")
-
             try:
                 # Abre el enlace
                 driver.get(current_link)
@@ -204,10 +241,17 @@ def extract_data_in_groups(driver, json_files):
                     for card in cards_data:
                         listing_id = card["id"]
                         if listing_id in master_data:
-                            # Si el ID ya existe, comparar los niveles de zoom
-                            if int(card["zoom_level"]) > int(master_data[listing_id]["zoom_level"]):
-                                master_data[listing_id] = card  # Actualizar si el nuevo nivel de zoom es mayor
-                                logging.info(f"Actualizando el listado con ID {listing_id} a un nivel de zoom mayor: {zoom_level}")
+                            # Comprobar y actualizar campos faltantes o incompletos
+                            for key in card:
+                                existing_value = master_data[listing_id].get(key, None)
+                                new_value = card[key]
+
+                                # Definir valores por defecto que indican datos incompletos
+                                default_values = ["No location", "No description", "No image", "No price", "No rating", 0.0, 0.0, "unknown", "No link", None]
+
+                                if (existing_value in default_values or existing_value is None) and new_value not in default_values:
+                                    master_data[listing_id][key] = new_value
+                                    logging.info(f"Actualizando campo '{key}' del listado con ID {listing_id}")
                         else:
                             # Si el ID no existe, agregarlo
                             master_data[listing_id] = card
@@ -317,13 +361,13 @@ def main():
 
     # Lista de archivos JSON con niveles de zoom (rutas completas)
     json_files = [
-        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_14.json",
-        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_16.json",
-        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_18.json",
         "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_20.json",
+        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_18.json",
+        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_16.json",
+        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_14.json",
     ]
 
-    # Configurar y utilizar el WebDriver dentro de un context manager
+    # Configurar y utilizar el WebDriver
     driver = setup_webdriver()
     try:
         # Extraer datos de los archivos JSON
