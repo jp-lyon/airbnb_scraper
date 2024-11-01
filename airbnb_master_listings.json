@@ -30,5 +30,37 @@
         "ne_lng": -74.11080000000001,
         "zoom_level": 20,
         "TypeRoomOrHouse": "house"
+    },
+    "709505673049736806": {
+        "id": "709505673049736806",
+        "link": "https://www.airbnb.com.co/rooms/709505673049736806?adults=1&category_tag=Tag%3A8678&children=0&enable_m3_private_room=true&infants=0&pets=0&photo_id=1484955919&search_mode=regular_search&check_in=2024-12-01&check_out=2024-12-06&source_impression_id=p3_1730406069_P3PYuIL9VnJLjsdu&previous_page_section_name=1000&federated_search_id=1e70ceca-b260-49a8-b687-988228f0533d",
+        "location": "Habitación en Suba",
+        "description": "Quédate con Ana María\nQuédate con Ana María\nSoy ingeniera\n,",
+        "image": "https://a0.muscache.com/im/pictures/user/60f83c8c-b6b7-4247-a46e-b2198a4a7bd4.jpg?im_w=720",
+        "price": "$128,480 COP ",
+        "rating": "Calificación promedio: 5.0 de 5, 7 reseñas\n5.0 (7)",
+        "first_comment_date": null,
+        "sw_lat": 4.743799999999999,
+        "sw_lng": -74.0596,
+        "ne_lat": 4.744599999999999,
+        "ne_lng": -74.0588,
+        "zoom_level": 20,
+        "TypeRoomOrHouse": "house"
+    },
+    "736310754298579049": {
+        "id": "736310754298579049",
+        "link": "https://www.airbnb.com.co/rooms/736310754298579049?adults=1&children=0&enable_m3_private_room=true&infants=0&pets=0&search_mode=regular_search&check_in=2024-11-01&check_out=2024-11-06&source_impression_id=p3_1730406322_P3UMflhhoxLEvQNB&previous_page_section_name=1000&federated_search_id=e7dfe168-3cfe-4e34-8de0-c912b5d6df93",
+        "location": "Apartamento en Santa Bárbara",
+        "description": "Un lugar para descansar, negocios o trabajo",
+        "image": "https://a0.muscache.com/im/pictures/0d27187d-65f3-49ae-a4ee-4d2769acc138.jpg?im_w=720",
+        "price": "$142,176 COP ",
+        "rating": "No rating",
+        "first_comment_date": null,
+        "sw_lat": 4.6926,
+        "sw_lng": -74.054,
+        "ne_lat": 4.6934,
+        "ne_lng": -74.0532,
+        "zoom_level": 20,
+        "TypeRoomOrHouse": "house"
     }
 }

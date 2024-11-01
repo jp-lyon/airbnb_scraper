@@ -10,6 +10,8 @@ from bs4 import BeautifulSoup
 import requests
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
+from selenium.webdriver import ActionChains
+
 
 def setup_webdriver():
     options = Options()
@@ -28,47 +30,24 @@ def setup_webdriver():
     driver = webdriver.Firefox(options=options)
     return driver
 
-def get_scroll_height(driver):
-    return driver.execute_script("return document.documentElement.scrollHeight")
 
-def scroll_to_bottom(driver, max_scrolls=None):
-    try:
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CLASS_NAME, 's78n3tv'))
-        )
-    except TimeoutException:
-        print("No comments found on the page")
-        return
 
-    last_height = get_scroll_height(driver)
-    scroll_attempts = 0
-    scroll_pause_time = 2
-
+def scroll_container(driver):
     while True:
-        if max_scrolls and scroll_attempts >= max_scrolls:
-            break
+        try:
+            time.sleep(5)
+            element = driver.find_element(By.CLASS_NAME, "scrollba")
+            driver.execute_script("arguments[0].scrollIntoView(true);", element)
+        except (TimeoutException, StaleElementReferenceException) as e:
+            print("No more View More buttons")
+        break
 
-        driver.execute_script("window.scrollTo(0, document.documentElement.scrollHeight);")
-        time.sleep(scroll_pause_time)
-        
-        new_height = get_scroll_height(driver)
-        
-        if new_height == last_height:
-            driver.execute_script("window.scrollTo(0, document.documentElement.scrollHeight);")
-            time.sleep(scroll_pause_time * 2)
-            new_height = get_scroll_height(driver)
-            
-            if new_height == last_height:
-                break
-                
-        last_height = new_height
-        scroll_attempts += 1
+
 
 def extract_last_comment_date(driver, idPublication: str) -> str:
     try:
         driver.get(f'https://www.airbnb.com.co/rooms/{idPublication}/reviews')
-        scroll_to_bottom(driver)
-        
+        time.sleep(10)
         page_source = driver.page_source
         soup = BeautifulSoup(page_source, 'html.parser')
         

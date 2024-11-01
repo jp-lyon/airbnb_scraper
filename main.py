@@ -36,7 +36,8 @@ logging.basicConfig(
     ]
 )
 
-
+def scroll_down(driver):
+    return 
 
 def extract_first_comment(driver, listing_id):
     """
@@ -62,11 +63,12 @@ def extract_first_comment(driver, listing_id):
             soup = BeautifulSoup(page_source, 'html.parser')
         
             dates_comments = soup.find_all('div', class_='s78n3tv')
+            
             if dates_comments:
                 last_comment = dates_comments[-1].get_text(strip=True)
                 return last_comment
             else:
-                logging.warning(f"Texto de fecha de comentario vacío encontrado para el listado {listing_id}")
+                logging.warning(f"No se encontraron reviews para el listado {listing_id}")
                 return None
                 
         except TimeoutException:
@@ -79,7 +81,6 @@ def extract_first_comment(driver, listing_id):
     except Exception as e:
         logging.error(f"Error al extraer el primer comentario para el listado {listing_id}: {e}", exc_info=True)
         return None
-
 
 
 # Función para monitorear y loguear el uso de memoria
