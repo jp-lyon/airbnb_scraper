@@ -24,6 +24,10 @@ import pandas as pd
 from urllib.parse import urlparse, parse_qs
 from tqdm import tqdm  # Importar tqdm para la barra de progreso
 
+from bs4 import BeautifulSoup
+import requests
+
+
 # Configuración de Logging
 logging.basicConfig(
     level=logging.INFO,
@@ -61,6 +65,30 @@ class AirbnbScraper:
                 attempts += 1
                 time.sleep(1)  # Esperar un segundo antes de reintentar
         return 0.0, 0.0
+def scroll_down(driver):
+    return 
+
+def extract_last_comment_date(driver, idPublication: str) -> str:
+    try:
+        driver.get(f'https://www.airbnb.com.co/rooms/{idPublication}/reviews')
+        time.sleep(10)
+        page_source = driver.page_source
+        soup = BeautifulSoup(page_source, 'html.parser')
+        
+        dates_comments = soup.find_all('div', class_='s78n3tv')
+        
+        if dates_comments:
+            last_comment = dates_comments[-1].get_text(strip=True)
+            print(f"Último comentario encontrado: {last_comment}")
+            return last_comment
+        else:
+            print(f"No se encontraron comentarios para la publicación {idPublication}")
+            return ""
+            
+    except Exception as e:
+        print(f"Error al extraer la fecha del último comentario para la publicación {idPublication}: {e}")
+        return ""
+
 
 # Función para monitorear y loguear el uso de memoria
 def log_memory_usage():
@@ -71,6 +99,35 @@ def log_memory_usage():
 # Función para esperar un tiempo específico
 def wait_for_page_load(seconds):
     time.sleep(seconds)
+
+# Funcion que clasifica si es habitacion o apto
+def roomOrHouse(TypeDescription:str)->str:
+    """
+    clasifica descripciones si es habitacion o apto
+    """
+    if TypeDescription.startswith("Habitación"):
+        return "room"
+    else: return "house"
+
+def extract_lat_lon(idPublication):
+    attempts = 0
+    success = False
+
+    while not success and attempts < 10:
+        try:
+            URL = 'https://www.airbnb.com.co/rooms/'
+            r = requests.get(URL + str(idPublication))
+            p_lat = compile(r'"lat":([-0-9.]+),')
+            p_lon = compile(r'"lng":([-0-9.]+),')
+            lat = p_lat.findall(r.text)[0]
+            lon = p_lon.findall(r.text)[0]
+            success = True
+            return float(lat), float(lon)
+        except Exception as e:
+            print(f'No hay coordenada, intento número: {attempts + 1}')
+            print(f'Error: {e}')
+            attempts += 1
+    return 0.0, 0.0
 
 # Función para extraer datos de las tarjetas en la página actual
 def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
@@ -107,7 +164,7 @@ def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
                 image = "No image"
 
             try:
-                price = card.find_element(By.CLASS_NAME, "pquyp1l").text
+                price = card.find_element(By.CLASS_NAME, "_11jcbg2").text
             except NoSuchElementException:
                 price = "No price"
 
@@ -115,6 +172,17 @@ def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
                 rating = card.find_element(By.CLASS_NAME, "r4a59j5").text
             except NoSuchElementException:
                 rating = "No rating"
+            try:
+                lat, lon = extract_lat_lon(listing_id)
+            except NoSuchElementException:
+                lat = 0.0
+                lon = 0.0
+
+            # Extraer primer comentario     
+            first_comment = None
+            if listing_id != "unknown":
+                first_comment = extract_last_comment_date(driver, listing_id)
+
 
             # Obtener coordenadas usando el método extract_lat_lon
             lat, lon = scraper.extract_lat_lon(listing_id)
@@ -130,11 +198,15 @@ def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
                 "rating": rating,
                 "latitude": lat,
                 "longitude": lon,
+                "first_comment_date": first_comment,
                 "sw_lat": sw_lat,
                 "sw_lng": sw_lng,
                 "ne_lat": ne_lat,
                 "ne_lng": ne_lng,
                 "zoom_level": zoom_level,  # Incluir el nivel de zoom
+                "TypeRoomOrHouse": roomOrHouse(description) if description else "unknown",
+                "lat": lat,
+                "lon": lon
             }
 
             cards_data.append(data)
@@ -162,7 +234,7 @@ def save_json_data(filepath, data):
 
 # Función para extraer enlaces siguientes y manejarlos eficientemente
 def extract_data_in_groups(driver, json_files):
-    master_filepath = "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_master_listings.json"
+    master_filepath = "./airbnb_master_listings.json"
     master_data = load_json_data(master_filepath)
     logging.info(f"El archivo maestro contiene actualmente {len(master_data)} listados.")
 
@@ -361,10 +433,10 @@ def main():
 
     # Lista de archivos JSON con niveles de zoom (rutas completas)
     json_files = [
-        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_20.json",
-        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_18.json",
-        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_16.json",
-        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_14.json",
+        "./airbnb_urls_bogota_zoom_14.json",
+        "./airbnb_urls_bogota_zoom_16.json",
+        "./airbnb_urls_bogota_zoom_18.json",
+        "./airbnb_urls_bogota_zoom_20.json",
     ]
 
     # Configurar y utilizar el WebDriver
