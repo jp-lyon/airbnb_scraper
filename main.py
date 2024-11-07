@@ -206,15 +206,15 @@ def save_json_data(filepath, data):
 
 # Funciones para guardar y cargar el estado de los DataFrames
 def save_state(df_pending_links, df_visited_links, state_info=None):
-    df_pending_links.to_csv('pending_links.csv', index=False)
-    df_visited_links.to_csv('visited_links.csv', index=False)
+    df_pending_links.to_csv('/home/jjleo/Entorno/Python/airbnb_scraper/pending_links.csv', index=False)
+    df_visited_links.to_csv('/home/jjleo/Entorno/Python/airbnb_scraper/visited_links.csv', index=False)
     if state_info:
-        with open('processing_state.json', 'w') as f:
+        with open('/home/jjleo/Entorno/Python/airbnb_scraper/processing_state.json', 'w') as f:
             json.dump(state_info, f)
     logging.info("Estado guardado exitosamente.")
 
 def load_state():
-    if os.path.exists('pending_links.csv') and os.path.exists('visited_links.csv'):
+    if os.path.exists('/home/jjleo/Entorno/Python/airbnb_scraperpending_links.csv') and os.path.exists('/home/jjleo/Entorno/Python/airbnb_scraper/visited_links.csv'):
         df_pending_links = pd.read_csv('pending_links.csv')
         df_visited_links = pd.read_csv('visited_links.csv')
         logging.info("Estado cargado exitosamente.")
@@ -224,8 +224,8 @@ def load_state():
         logging.info("No se encontró estado previo. Iniciando desde cero.")
 
     state_info = {}
-    if os.path.exists('processing_state.json'):
-        with open('processing_state.json', 'r') as f:
+    if os.path.exists('/home/jjleo/Entorno/Python/airbnb_scraper/processing_state.json'):
+        with open('/home/jjleo/Entorno/Python/airbnb_scraper/processing_state.json', 'r') as f:
             state_info = json.load(f)
             logging.info("Información del estado de procesamiento cargada.")
 
@@ -243,7 +243,7 @@ def signal_handler(sig, frame):
 # Función para extraer enlaces siguientes y manejarlos eficientemente
 def extract_data_in_groups(driver, json_files):
     global stop_requested
-    master_filepath = "./airbnb_master_listings.json"
+    master_filepath = "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_master_listings.json"
     master_data = load_json_data(master_filepath)
     logging.info(f"El archivo maestro contiene actualmente {len(master_data)} listados.")
 
@@ -251,12 +251,12 @@ def extract_data_in_groups(driver, json_files):
     if not master_data:
         logging.info("El archivo maestro está vacío o no existe. Iniciando desde cero.")
         # Borrar estados previos si existen
-        if os.path.exists('pending_links.csv'):
-            os.remove('pending_links.csv')
-        if os.path.exists('visited_links.csv'):
-            os.remove('visited_links.csv')
-        if os.path.exists('processing_state.json'):
-            os.remove('processing_state.json')
+        if os.path.exists('/home/jjleo/Entorno/Python/airbnb_scraper/pending_links.csv'):
+            os.remove('/home/jjleo/Entorno/Python/airbnb_scraper/pending_links.csv')
+        if os.path.exists('/home/jjleo/Entorno/Python/airbnb_scraper/visited_links.csv'):
+            os.remove('/home/jjleo/Entorno/Python/airbnb_scraper/visited_links.csv')
+        if os.path.exists('/home/jjleo/Entorno/Python/airbnb_scraper/processing_state.json'):
+            os.remove('/home/jjleo/Entorno/Python/airbnb_scraper/processing_state.json')
 
     # Cargar estado previo si existe
     df_pending_links, df_visited_links, state_info = load_state()
