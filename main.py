@@ -1,14 +1,11 @@
-import math
-import urllib.parse
 import os
 import json
 import time
 import random
-import gc
 import logging
 import psutil
-import requests  # Importar requests
-import re        # Importar re
+import requests
+import re
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -16,26 +13,20 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
     NoSuchElementException,
     TimeoutException,
-    StaleElementReferenceException,
-    NoSuchWindowException,
+    WebDriverException,
 )
 from selenium.webdriver.firefox.options import Options
 import pandas as pd
-from urllib.parse import urlparse, parse_qs
-from tqdm import tqdm  # Importar tqdm para la barra de progreso
-
+from tqdm import tqdm
 from bs4 import BeautifulSoup
-
-# Obtener el directorio del script actual
-script_dir = os.path.dirname(os.path.abspath(__file__))
+import signal
 
 # Configuración de Logging
-log_file_path = os.path.join(script_dir, "scraper.log")
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(log_file_path),
+        logging.FileHandler("scraper.log"),
         logging.StreamHandler()
     ]
 )
@@ -68,9 +59,6 @@ class AirbnbScraper:
                 time.sleep(1)  # Esperar un segundo antes de reintentar
         return 0.0, 0.0
 
-def scroll_down(driver):
-    return 
-
 def extract_last_comment_date(driver, idPublication: str) -> str:
     try:
         driver.get(f'https://www.airbnb.com.co/rooms/{idPublication}/reviews')
@@ -87,11 +75,10 @@ def extract_last_comment_date(driver, idPublication: str) -> str:
         else:
             print(f"No se encontraron comentarios para la publicación {idPublication}")
             return ""
-            
+                
     except Exception as e:
         print(f"Error al extraer la fecha del último comentario para la publicación {idPublication}: {e}")
         return ""
-
 
 # Función para monitorear y loguear el uso de memoria
 def log_memory_usage():
@@ -110,7 +97,7 @@ def roomOrHouse(TypeDescription:str)->str:
     """
     if TypeDescription.startswith("Habitación"):
         return "room"
-    else: 
+    else:
         return "house"
 
 # Función para extraer datos de las tarjetas en la página actual
@@ -158,12 +145,15 @@ def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
                 rating = "No rating"
 
             # Obtener coordenadas usando el método extract_lat_lon
-            lat, lon = scraper.extract_lat_lon(listing_id)
+            try:
+                lat, lon = scraper.extract_lat_lon(listing_id)
+            except Exception:
+                lat, lon = 0.0, 0.0
 
-            # Extraer primer comentario     
-            first_comment = None
+            # Extraer último comentario     
+            last_comment = None
             if listing_id != "unknown":
-                first_comment = extract_last_comment_date(driver, listing_id)
+                last_comment = extract_last_comment_date(driver, listing_id)
 
             # Añadir coordenadas, nivel de zoom e ID extraídos de la URL
             data = {
@@ -176,15 +166,13 @@ def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
                 "rating": rating,
                 "latitude": lat,
                 "longitude": lon,
-                "first_comment_date": first_comment,
+                "last_comment_date": last_comment,
                 "sw_lat": sw_lat,
                 "sw_lng": sw_lng,
                 "ne_lat": ne_lat,
                 "ne_lng": ne_lng,
                 "zoom_level": zoom_level,  # Incluir el nivel de zoom
-                "TypeRoomOrHouse": roomOrHouse(description) if description else "unknown",
-                "lat": lat,
-                "lon": lon
+                "TypeRoomOrHouse": roomOrHouse(description) if description else "unknown"
             }
 
             cards_data.append(data)
@@ -199,69 +187,159 @@ def load_json_data(filepath):
     if os.path.exists(filepath):
         with open(filepath, "r", encoding="utf-8") as json_file:
             try:
-                return json.load(json_file)
+                data = json.load(json_file)
+                if not data:
+                    logging.info(f"El archivo {filepath} está vacío.")
+                    return {}
+                return data
             except json.JSONDecodeError as e:
                 logging.error(f"Error al cargar JSON desde {filepath}: {e}")
                 return {}
-    return {}
+    else:
+        logging.info(f"El archivo {filepath} no existe.")
+        return {}
 
 # Guardar datos JSON en un archivo
 def save_json_data(filepath, data):
     with open(filepath, "w", encoding="utf-8") as json_file:
         json.dump(data, json_file, ensure_ascii=False, indent=4)
 
+# Funciones para guardar y cargar el estado de los DataFrames
+def save_state(df_pending_links, df_visited_links, state_info=None):
+    df_pending_links.to_csv('pending_links.csv', index=False)
+    df_visited_links.to_csv('visited_links.csv', index=False)
+    if state_info:
+        with open('processing_state.json', 'w') as f:
+            json.dump(state_info, f)
+    logging.info("Estado guardado exitosamente.")
+
+def load_state():
+    if os.path.exists('pending_links.csv') and os.path.exists('visited_links.csv'):
+        df_pending_links = pd.read_csv('pending_links.csv')
+        df_visited_links = pd.read_csv('visited_links.csv')
+        logging.info("Estado cargado exitosamente.")
+    else:
+        df_pending_links = pd.DataFrame(columns=['link', 'visited', 'sw_lat', 'sw_lng', 'ne_lat', 'ne_lng', 'zoom_level'])
+        df_visited_links = pd.DataFrame(columns=['link', 'visited', 'sw_lat', 'sw_lng', 'ne_lat', 'ne_lng', 'zoom_level'])
+        logging.info("No se encontró estado previo. Iniciando desde cero.")
+
+    state_info = {}
+    if os.path.exists('processing_state.json'):
+        with open('processing_state.json', 'r') as f:
+            state_info = json.load(f)
+            logging.info("Información del estado de procesamiento cargada.")
+
+    return df_pending_links, df_visited_links, state_info
+
+# Variable global para indicar si el usuario ha solicitado detener el programa
+stop_requested = False
+
+# Función para manejar la señal de interrupción (Ctrl+C)
+def signal_handler(sig, frame):
+    global stop_requested
+    stop_requested = True
+    logging.info("Interrupción del usuario detectada. Guardando estado y deteniendo el programa...")
+
 # Función para extraer enlaces siguientes y manejarlos eficientemente
 def extract_data_in_groups(driver, json_files):
-    master_filepath = os.path.join(script_dir, "airbnb_master_listings.json")
+    global stop_requested
+    master_filepath = "./airbnb_master_listings.json"
     master_data = load_json_data(master_filepath)
     logging.info(f"El archivo maestro contiene actualmente {len(master_data)} listados.")
 
-    df_visited_links = pd.DataFrame(columns=['link', 'visited', 'sw_lat', 'sw_lng', 'ne_lat', 'ne_lng', 'zoom_level'])
-    df_pending_links = pd.DataFrame(columns=['link', 'visited', 'sw_lat', 'sw_lng', 'ne_lat', 'ne_lng', 'zoom_level'])
+    # Si el archivo maestro no existe o está vacío, iniciar desde cero
+    if not master_data:
+        logging.info("El archivo maestro está vacío o no existe. Iniciando desde cero.")
+        # Borrar estados previos si existen
+        if os.path.exists('pending_links.csv'):
+            os.remove('pending_links.csv')
+        if os.path.exists('visited_links.csv'):
+            os.remove('visited_links.csv')
+        if os.path.exists('processing_state.json'):
+            os.remove('processing_state.json')
 
-    # Barra de progreso para los archivos JSON
-    for json_file in tqdm(json_files, desc="Procesando archivos JSON", unit="archivo"):
-        logging.info(f"Procesando archivo JSON: {json_file}")
-        with open(json_file, 'r', encoding='utf-8') as file:
-            lines = file.readlines()
-            random.shuffle(lines)  # Mezclar líneas para evitar patrones
+    # Cargar estado previo si existe
+    df_pending_links, df_visited_links, state_info = load_state()
 
-            # Barra de progreso para las líneas dentro del archivo JSON
-            for line in tqdm(lines, desc=f"Procesando {os.path.basename(json_file)}", unit="línea", leave=False):
-                try:
-                    data = json.loads(line.strip())
-                    url_json = data['url']
-                    sw_lat = data['sw_lat']
-                    sw_lng = data['sw_lng']
-                    ne_lat = data['ne_lat']
-                    ne_lng = data['ne_lng']
-                    zoom_level = data['zoom_level']
+    # Variables para controlar la posición en los archivos JSON
+    current_json_index = state_info.get('current_json_index', 0)
+    current_line_index = state_info.get('current_line_index', 0)
 
-                    # Verifica si el enlace ya ha sido visitado o está pendiente de ser visitado
-                    if ((not df_visited_links.empty and (df_visited_links['link'] == url_json).any()) or
-                        (not df_pending_links.empty and (df_pending_links['link'] == url_json).any())):
+    # Si no hay enlaces pendientes, cargar los nuevos desde los archivos JSON
+    if df_pending_links.empty:
+        # Barra de progreso para los archivos JSON
+        for idx, json_file in enumerate(tqdm(json_files[current_json_index:], desc="Procesando archivos JSON", unit="archivo", initial=current_json_index)):
+            logging.info(f"Procesando archivo JSON: {json_file}")
+            with open(json_file, 'r', encoding='utf-8') as file:
+                lines = file.readlines()
+                random.shuffle(lines)  # Mezclar líneas para evitar patrones
+
+                # Si estamos reanudando desde una interrupción, ajustar el índice de línea
+                start_line = current_line_index if idx == current_json_index else 0
+
+                # Barra de progreso para las líneas dentro del archivo JSON
+                for line_idx, line in enumerate(tqdm(lines[start_line:], desc=f"Procesando {os.path.basename(json_file)}", unit="línea", leave=False, initial=start_line)):
+                    # Si el usuario solicitó detener el programa, salir del bucle
+                    if stop_requested:
+                        # Guardar estado
+                        state_info = {
+                            'current_json_index': idx + current_json_index,
+                            'current_line_index': line_idx + start_line,
+                        }
+                        save_state(df_pending_links, df_visited_links, state_info)
+                        return df_pending_links, df_visited_links
+
+                    try:
+                        data = json.loads(line.strip())
+                        url_json = data['url']
+                        sw_lat = data['sw_lat']
+                        sw_lng = data['sw_lng']
+                        ne_lat = data['ne_lat']
+                        ne_lng = data['ne_lng']
+                        zoom_level = data['zoom_level']
+
+                        # Verifica si el enlace ya ha sido visitado o está pendiente de ser visitado
+                        if ((not df_visited_links.empty and (df_visited_links['link'] == url_json).any()) or
+                            (not df_pending_links.empty and (df_pending_links['link'] == url_json).any())):
+                            continue
+
+                        # Inicializa los enlaces por visitar para esta página
+                        new_entry = {
+                            'link': url_json,
+                            'visited': False,
+                            'sw_lat': sw_lat,
+                            'sw_lng': sw_lng,
+                            'ne_lat': ne_lat,
+                            'ne_lng': ne_lng,
+                            'zoom_level': zoom_level
+                        }
+                        # Agregar al final del DataFrame
+                        df_pending_links = pd.concat([df_pending_links, pd.DataFrame([new_entry])], ignore_index=True)
+
+                    except json.JSONDecodeError as e:
+                        logging.error(f"Error al decodificar JSON en {json_file}: {e}")
                         continue
 
-                    # Inicializa los enlaces por visitar para esta página
-                    new_entry = {
-                        'link': url_json,
-                        'visited': False,
-                        'sw_lat': sw_lat,
-                        'sw_lng': sw_lng,
-                        'ne_lat': ne_lat,
-                        'ne_lng': ne_lng,
-                        'zoom_level': zoom_level
-                    }
-                    df_pending_links = pd.concat([pd.DataFrame([new_entry]), df_pending_links], ignore_index=True)
+                # Reiniciar el índice de línea después de procesar un archivo
+                current_line_index = 0
 
-                except json.JSONDecodeError as e:
-                    logging.error(f"Error al decodificar JSON en {json_file}: {e}")
-                    continue
+        # Reiniciar el índice de archivo después de procesar todos los archivos
+        current_json_index = 0
 
     # Procesa los enlaces pendientes con una barra de progreso
-    pending_total = len(df_pending_links)
+    pending_total = len(df_pending_links[df_pending_links['visited'] == False])
     with tqdm(total=pending_total, desc="Procesando enlaces pendientes", unit="enlace") as pbar:
         while not df_pending_links[df_pending_links['visited'] == False].empty:
+            # Si el usuario solicitó detener el programa, salir del bucle
+            if stop_requested:
+                # Guardar estado
+                state_info = {
+                    'current_json_index': current_json_index,
+                    'current_line_index': current_line_index,
+                }
+                save_state(df_pending_links, df_visited_links, state_info)
+                break
+
             current_row = df_pending_links[df_pending_links['visited'] == False].iloc[0]
             current_link = current_row['link']
             sw_lat = current_row['sw_lat']
@@ -277,8 +355,14 @@ def extract_data_in_groups(driver, json_files):
                 continue
 
             logging.info(f"Procesando link: {current_link} con coordenadas: {sw_lat}, {sw_lng}, {ne_lat}, {ne_lng}")
+
+            # Verificar si el driver está activo
+            if driver.session_id is None:
+                logging.warning("El driver ha perdido la sesión. Re-iniciando el driver...")
+                driver.quit()
+                driver = setup_webdriver()
+
             try:
-                # Abre el enlace
                 driver.get(current_link)
                 wait_for_page_load(3)
                 log_memory_usage()
@@ -311,13 +395,6 @@ def extract_data_in_groups(driver, json_files):
                     save_json_data(master_filepath, master_data)
                     logging.info(f"Datos extraídos y agregados al archivo maestro: {master_filepath}")
                     logging.info(f"El archivo maestro contiene actualmente {len(master_data)} listados.")
-
-                    # Eliminar duplicados en el archivo maestro
-                    master_data_unique = {v['id']: v for v in master_data.values()}
-                    duplicates_removed = len(master_data) - len(master_data_unique)
-                    master_data = master_data_unique
-                    save_json_data(master_filepath, master_data)
-                    logging.info(f"Se eliminaron {duplicates_removed} listados duplicados. El archivo maestro contiene ahora {len(master_data)} listados.")
                 else:
                     logging.info("No se encontraron nuevos listados en esta página.")
 
@@ -337,7 +414,8 @@ def extract_data_in_groups(driver, json_files):
                                 'ne_lng': ne_lng,
                                 'zoom_level': zoom_level
                             }
-                            df_pending_links = pd.concat([pd.DataFrame([new_entry]), df_pending_links], ignore_index=True)
+                            # Agregar al final del DataFrame
+                            df_pending_links = pd.concat([df_pending_links, pd.DataFrame([new_entry])], ignore_index=True)
                             logging.info(f"Encontrado nuevo enlace: {link}")
                 except TimeoutException:
                     logging.warning("No se encontraron nuevos botones de enlace en la página actual.")
@@ -353,21 +431,27 @@ def extract_data_in_groups(driver, json_files):
                     'ne_lng': ne_lng,
                     'zoom_level': zoom_level
                 }
-                df_visited_links = pd.concat([pd.DataFrame([new_visited]), df_visited_links], ignore_index=True)
-                log_memory_usage()
-
-                # Recolección de basura para liberar memoria
-                gc.collect()
+                df_visited_links = pd.concat([df_visited_links, pd.DataFrame([new_visited])], ignore_index=True)
                 log_memory_usage()
 
                 # Actualizar la barra de progreso
                 pbar.update(1)
 
-            except Exception as e:
-                logging.error(f"Error al procesar el enlace {current_link}: {e}")
+                # Guardar estado después de procesar cada enlace
+                state_info = {
+                    'current_json_index': current_json_index,
+                    'current_line_index': current_line_index,
+                }
+                save_state(df_pending_links, df_visited_links, state_info)
+
+            except WebDriverException as e:
+                logging.error(f"Error del WebDriver al procesar el enlace {current_link}: {e}")
+                # Re-iniciar el driver en caso de error crítico
+                driver.quit()
+                driver = setup_webdriver()
                 # Marcar como visitado para evitar bloqueos
                 df_pending_links.loc[df_pending_links['link'] == current_link, 'visited'] = True
-                df_visited_links = pd.concat([pd.DataFrame([{
+                df_visited_links = pd.concat([df_visited_links, pd.DataFrame([{
                     'link': current_link,
                     'visited': True,
                     'sw_lat': sw_lat,
@@ -375,14 +459,30 @@ def extract_data_in_groups(driver, json_files):
                     'ne_lat': ne_lat,
                     'ne_lng': ne_lng,
                     'zoom_level': zoom_level
-                }]), df_visited_links], ignore_index=True)
-                gc.collect()
+                }])], ignore_index=True)
+                pbar.update(1)
+                continue
+            except Exception as e:
+                logging.error(f"Error al procesar el enlace {current_link}: {e}")
+                # Marcar como visitado para evitar bloqueos
+                df_pending_links.loc[df_pending_links['link'] == current_link, 'visited'] = True
+                df_visited_links = pd.concat([df_visited_links, pd.DataFrame([{
+                    'link': current_link,
+                    'visited': True,
+                    'sw_lat': sw_lat,
+                    'sw_lng': sw_lng,
+                    'ne_lat': ne_lat,
+                    'ne_lng': ne_lng,
+                    'zoom_level': zoom_level
+                }])], ignore_index=True)
                 pbar.update(1)
                 continue
 
-    logging.info("Todos los enlaces de las páginas han sido visitados.")
-    master_data = load_json_data(master_filepath)
-    logging.info(f"El archivo maestro contiene actualmente {len(master_data)} listados.")
+        logging.info("Todos los enlaces de las páginas han sido visitados o el programa ha sido detenido.")
+        master_data = load_json_data(master_filepath)
+        logging.info(f"El archivo maestro contiene actualmente {len(master_data)} listados.")
+
+    return df_pending_links, df_visited_links  # Retornamos los DataFrames
 
 # Configuración del WebDriver en modo headless y optimizado
 def setup_webdriver():
@@ -405,32 +505,46 @@ def setup_webdriver():
     driver = webdriver.Firefox(options=options)
     return driver
 
-def main():
-    # Limpiar la consola
-    try:
-        os.system("cls")  # Para Windows
-    except:
-        os.system("clear")  # Para Linux/Mac
+# Agregar la función get_zoom_level
+def get_zoom_level(filename):
+    match = re.search(r'zoom_(\d+)', filename)
+    return int(match.group(1)) if match else 0
 
+def main():
+    global stop_requested
+    
+    # Registrar el manejador de señal para Ctrl+C
+    signal.signal(signal.SIGINT, signal_handler)
+    
     # Lista de archivos JSON con niveles de zoom (rutas completas)
     json_files = [
-        os.path.join(script_dir, "airbnb_urls_bogota_zoom_14.json"),
-        os.path.join(script_dir, "airbnb_urls_bogota_zoom_16.json"),
-        os.path.join(script_dir, "airbnb_urls_bogota_zoom_18.json"),
-        os.path.join(script_dir, "airbnb_urls_bogota_zoom_20.json"),
+        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_14.json",
+        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_16.json",
+        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_18.json",
+        "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_20.json",
     ]
 
-    # Configurar y utilizar el WebDriver
+    # Ordenar por nivel de zoom
+    json_files = sorted(json_files, key=get_zoom_level)
+    
+    # Imprimir el orden de los archivos para verificar
+    print("Procesando archivos en el siguiente orden:")
+    for f in json_files:
+        print(f)
+
     driver = setup_webdriver()
     try:
-        # Extraer datos de los archivos JSON
-        extract_data_in_groups(driver, json_files)
+        df_pending_links, df_visited_links = extract_data_in_groups(driver, json_files)
     except Exception as e:
         logging.error(f"Error en el proceso principal: {e}")
     finally:
-        # Asegurar que el WebDriver se cierre correctamente
         driver.quit()
         logging.info("WebDriver cerrado correctamente.")
+
+        # Guardar estado final si el programa fue detenido
+        if stop_requested:
+            save_state(df_pending_links, df_visited_links)
+            logging.info("Estado final guardado después de la interrupción.")
 
 if __name__ == "__main__":
     main()
