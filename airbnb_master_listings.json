@@ -1,0 +1,42 @@
+{
+    "878161093892231361": {
+        "id": "878161093892231361",
+        "link": "https://www.airbnb.com.co/rooms/878161093892231361?adults=1&children=0&enable_m3_private_room=true&infants=0&pets=0&search_mode=regular_search&check_in=2024-11-07&check_out=2024-11-12&source_impression_id=p3_1730938166_P3QxNpqdUa47wWjK&previous_page_section_name=1000&federated_search_id=3f1968f2-2808-42e2-9e7a-d6b79d721863",
+        "location": "Casa particular en La Candelaria",
+        "description": "Casa colonial en La Candelaria",
+        "image": "https://a0.muscache.com/im/pictures/miso/Hosting-878161093892231361/original/47906bdb-8333-48cb-9694-3069611b731e.jpeg?im_w=720",
+        "price": "$239,905 COP ",
+        "rating": "Calificación promedio: 4.88 de 5, 17 reseñas\n4.88 (17)",
+        "latitude": 4.58986,
+        "longitude": -74.07569,
+        "first_comment_date": "Calificación: 5 estrellas,·noviembre de 2023,·Estadía de una noche",
+        "sw_lat": 4.5893999999999995,
+        "sw_lng": -74.0764,
+        "ne_lat": 4.590199999999999,
+        "ne_lng": -74.07560000000001,
+        "zoom_level": 20,
+        "TypeRoomOrHouse": "house",
+        "lat": 4.58986,
+        "lon": -74.07569
+    },
+    "541258219493510749": {
+        "id": "541258219493510749",
+        "link": "https://www.airbnb.com.co/rooms/541258219493510749?adults=1&children=0&enable_m3_private_room=true&infants=0&pets=0&search_mode=regular_search&check_in=2024-11-11&check_out=2024-11-16&source_impression_id=p3_1730938214_P3UchEFALOTKy8Fa&previous_page_section_name=1000&federated_search_id=f0923608-93e7-448f-a219-55aaf5a86cbc",
+        "location": "Apartamento en Bogotá",
+        "description": "Loft Estándar Terraza Apartamento en el 93 Park-604",
+        "image": "https://a0.muscache.com/im/pictures/miso/Hosting-541258219493510749/original/dcacf78c-7b27-4ad4-b6f1-bb7628ee2e18.jpeg?im_w=720",
+        "price": "$180,000 COP ",
+        "rating": "Calificación promedio: 4.37 de 5, 19 reseñas\n4.37 (19)",
+        "latitude": 4.67715,
+        "longitude": -74.0474,
+        "first_comment_date": "Calificación: 5 estrellas,·enero de 2022,·Estadía de varias noches",
+        "sw_lat": 4.6766,
+        "sw_lng": -74.0476,
+        "ne_lat": 4.6774,
+        "ne_lng": -74.0468,
+        "zoom_level": 20,
+        "TypeRoomOrHouse": "house",
+        "lat": 4.67715,
+        "lon": -74.0474
+    }
+}

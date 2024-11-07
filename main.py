@@ -25,15 +25,17 @@ from urllib.parse import urlparse, parse_qs
 from tqdm import tqdm  # Importar tqdm para la barra de progreso
 
 from bs4 import BeautifulSoup
-import requests
 
+# Obtener el directorio del script actual
+script_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Configuración de Logging
+log_file_path = os.path.join(script_dir, "scraper.log")
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("scraper.log"),
+        logging.FileHandler(log_file_path),
         logging.StreamHandler()
     ]
 )
@@ -65,6 +67,7 @@ class AirbnbScraper:
                 attempts += 1
                 time.sleep(1)  # Esperar un segundo antes de reintentar
         return 0.0, 0.0
+
 def scroll_down(driver):
     return 
 
@@ -100,34 +103,15 @@ def log_memory_usage():
 def wait_for_page_load(seconds):
     time.sleep(seconds)
 
-# Funcion que clasifica si es habitacion o apto
+# Función que clasifica si es habitación o apartamento
 def roomOrHouse(TypeDescription:str)->str:
     """
-    clasifica descripciones si es habitacion o apto
+    Clasifica descripciones si es habitación o apartamento
     """
     if TypeDescription.startswith("Habitación"):
         return "room"
-    else: return "house"
-
-def extract_lat_lon(idPublication):
-    attempts = 0
-    success = False
-
-    while not success and attempts < 10:
-        try:
-            URL = 'https://www.airbnb.com.co/rooms/'
-            r = requests.get(URL + str(idPublication))
-            p_lat = compile(r'"lat":([-0-9.]+),')
-            p_lon = compile(r'"lng":([-0-9.]+),')
-            lat = p_lat.findall(r.text)[0]
-            lon = p_lon.findall(r.text)[0]
-            success = True
-            return float(lat), float(lon)
-        except Exception as e:
-            print(f'No hay coordenada, intento número: {attempts + 1}')
-            print(f'Error: {e}')
-            attempts += 1
-    return 0.0, 0.0
+    else: 
+        return "house"
 
 # Función para extraer datos de las tarjetas en la página actual
 def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
@@ -172,20 +156,14 @@ def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
                 rating = card.find_element(By.CLASS_NAME, "r4a59j5").text
             except NoSuchElementException:
                 rating = "No rating"
-            try:
-                lat, lon = extract_lat_lon(listing_id)
-            except NoSuchElementException:
-                lat = 0.0
-                lon = 0.0
+
+            # Obtener coordenadas usando el método extract_lat_lon
+            lat, lon = scraper.extract_lat_lon(listing_id)
 
             # Extraer primer comentario     
             first_comment = None
             if listing_id != "unknown":
                 first_comment = extract_last_comment_date(driver, listing_id)
-
-
-            # Obtener coordenadas usando el método extract_lat_lon
-            lat, lon = scraper.extract_lat_lon(listing_id)
 
             # Añadir coordenadas, nivel de zoom e ID extraídos de la URL
             data = {
@@ -234,7 +212,7 @@ def save_json_data(filepath, data):
 
 # Función para extraer enlaces siguientes y manejarlos eficientemente
 def extract_data_in_groups(driver, json_files):
-    master_filepath = "./airbnb_master_listings.json"
+    master_filepath = os.path.join(script_dir, "airbnb_master_listings.json")
     master_data = load_json_data(master_filepath)
     logging.info(f"El archivo maestro contiene actualmente {len(master_data)} listados.")
 
@@ -429,14 +407,17 @@ def setup_webdriver():
 
 def main():
     # Limpiar la consola
-    os.system("clear")
+    try:
+        os.system("cls")  # Para Windows
+    except:
+        os.system("clear")  # Para Linux/Mac
 
     # Lista de archivos JSON con niveles de zoom (rutas completas)
     json_files = [
-        "./airbnb_urls_bogota_zoom_14.json",
-        "./airbnb_urls_bogota_zoom_16.json",
-        "./airbnb_urls_bogota_zoom_18.json",
-        "./airbnb_urls_bogota_zoom_20.json",
+        os.path.join(script_dir, "airbnb_urls_bogota_zoom_14.json"),
+        os.path.join(script_dir, "airbnb_urls_bogota_zoom_16.json"),
+        os.path.join(script_dir, "airbnb_urls_bogota_zoom_18.json"),
+        os.path.join(script_dir, "airbnb_urls_bogota_zoom_20.json"),
     ]
 
     # Configurar y utilizar el WebDriver
