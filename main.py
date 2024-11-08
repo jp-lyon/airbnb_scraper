@@ -6,20 +6,22 @@ import logging
 import psutil
 import requests
 import re
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import (
-    NoSuchElementException,
-    TimeoutException,
-    WebDriverException,
-)
-from selenium.webdriver.firefox.options import Options
+import signal
 import pandas as pd
 from tqdm import tqdm
 from bs4 import BeautifulSoup
-import signal
+
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.common.exceptions import (
+    NoSuchElementException,
+    WebDriverException,
+    StaleElementReferenceException,
+)
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.firefox.options import Options
 
 # Configuración de Logging
 logging.basicConfig(
@@ -59,15 +61,17 @@ class AirbnbScraper:
                 time.sleep(1)  # Esperar un segundo antes de reintentar
         return 0.0, 0.0
 
-def extract_last_comment_date(driver, idPublication: str) -> str:
+def extract_last_comment_date(idPublication: str) -> str:
     try:
-        driver.get(f'https://www.airbnb.com.co/rooms/{idPublication}/reviews')
-        time.sleep(10)
-        page_source = driver.page_source
-        soup = BeautifulSoup(page_source, 'html.parser')
-        
+        URL = f'https://www.airbnb.com.co/rooms/{idPublication}/reviews'
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+        }
+        r = requests.get(URL, headers=headers)
+        soup = BeautifulSoup(r.text, 'html.parser')
+
         dates_comments = soup.find_all('div', class_='s78n3tv')
-        
+
         if dates_comments:
             last_comment = dates_comments[-1].get_text(strip=True)
             print(f"Último comentario encontrado: {last_comment}")
@@ -75,7 +79,7 @@ def extract_last_comment_date(driver, idPublication: str) -> str:
         else:
             print(f"No se encontraron comentarios para la publicación {idPublication}")
             return ""
-                
+
     except Exception as e:
         print(f"Error al extraer la fecha del último comentario para la publicación {idPublication}: {e}")
         return ""
@@ -91,7 +95,7 @@ def wait_for_page_load(seconds):
     time.sleep(seconds)
 
 # Función que clasifica si es habitación o apartamento
-def roomOrHouse(TypeDescription:str)->str:
+def roomOrHouse(TypeDescription: str) -> str:
     """
     Clasifica descripciones si es habitación o apartamento
     """
@@ -104,78 +108,86 @@ def roomOrHouse(TypeDescription:str)->str:
 def extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level):
     cards_data = []
     try:
-        # Limitar el número de elementos procesados
-        cards = driver.find_elements(By.CLASS_NAME, "cy5jw6o")[:100]  # Procesar solo los primeros 100 elementos
+        # Wait for the cards to be present
+        wait = WebDriverWait(driver, 10)
+        cards = wait.until(EC.presence_of_all_elements_located((By.CLASS_NAME, "cy5jw6o")))
+        cards = cards[:100]  # Limit to first 100 elements
         logging.info(f"Encontrados {len(cards)} elementos para procesar.")
 
-        # Instanciar la clase AirbnbScraper
+        # Instantiate the AirbnbScraper class
         scraper = AirbnbScraper()
 
-        for card in cards:
+        for index, card in enumerate(cards):
             try:
-                link_component = card.find_element(By.CLASS_NAME, "bn2bl2p").get_attribute("href")
-                listing_id = link_component.split("/")[-1].split("?")[0]  # Extraer el ID desde la URL
-            except NoSuchElementException:
-                link_component = "No link"
-                listing_id = "unknown"
+                # Extract data from the card
+                try:
+                    link_component = card.find_element(By.CLASS_NAME, "bn2bl2p").get_attribute("href")
+                    listing_id = link_component.split("/")[-1].split("?")[0]  # Extract ID from URL
+                except NoSuchElementException:
+                    link_component = "No link"
+                    listing_id = "unknown"
 
-            try:
-                location = card.find_element(By.CLASS_NAME, "t1jojoys").text
-            except NoSuchElementException:
-                location = "No location"
+                try:
+                    location = card.find_element(By.CLASS_NAME, "t1jojoys").text
+                except NoSuchElementException:
+                    location = "No location"
 
-            try:
-                description = card.find_element(By.CLASS_NAME, "s1cjsi4j").text
-            except NoSuchElementException:
-                description = "No description"
+                try:
+                    description = card.find_element(By.CLASS_NAME, "s1cjsi4j").text
+                except NoSuchElementException:
+                    description = "No description"
 
-            try:
-                image = card.find_element(By.CLASS_NAME, "itu7ddv").get_attribute("src")
-            except NoSuchElementException:
-                image = "No image"
+                try:
+                    image = card.find_element(By.CLASS_NAME, "itu7ddv").get_attribute("src")
+                except NoSuchElementException:
+                    image = "No image"
 
-            try:
-                price = card.find_element(By.CLASS_NAME, "_11jcbg2").text
-            except NoSuchElementException:
-                price = "No price"
+                try:
+                    price = card.find_element(By.CLASS_NAME, "_11jcbg2").text
+                except NoSuchElementException:
+                    price = "No price"
 
-            try:
-                rating = card.find_element(By.CLASS_NAME, "r4a59j5").text
-            except NoSuchElementException:
-                rating = "No rating"
+                try:
+                    rating = card.find_element(By.CLASS_NAME, "r4a59j5").text
+                except NoSuchElementException:
+                    rating = "No rating"
 
-            # Obtener coordenadas usando el método extract_lat_lon
-            try:
-                lat, lon = scraper.extract_lat_lon(listing_id)
-            except Exception:
-                lat, lon = 0.0, 0.0
+                # Get coordinates using the extract_lat_lon method
+                try:
+                    lat, lon = scraper.extract_lat_lon(listing_id)
+                except Exception:
+                    lat, lon = 0.0, 0.0
 
-            # Extraer último comentario     
-            last_comment = None
-            if listing_id != "unknown":
-                last_comment = extract_last_comment_date(driver, listing_id)
+                # Do not extract last_comment_date here
+                last_comment = None
 
-            # Añadir coordenadas, nivel de zoom e ID extraídos de la URL
-            data = {
-                "id": listing_id,
-                "link": link_component,
-                "location": location,
-                "description": description,
-                "image": image,
-                "price": price,
-                "rating": rating,
-                "latitude": lat,
-                "longitude": lon,
-                "last_comment_date": last_comment,
-                "sw_lat": sw_lat,
-                "sw_lng": sw_lng,
-                "ne_lat": ne_lat,
-                "ne_lng": ne_lng,
-                "zoom_level": zoom_level,  # Incluir el nivel de zoom
-                "TypeRoomOrHouse": roomOrHouse(description) if description else "unknown"
-            }
+                # Add data to the list
+                data = {
+                    "id": listing_id,
+                    "link": link_component,
+                    "location": location,
+                    "description": description,
+                    "image": image,
+                    "price": price,
+                    "rating": rating,
+                    "latitude": lat,
+                    "longitude": lon,
+                    "last_comment_date": last_comment,  # Will extract later
+                    "sw_lat": sw_lat,
+                    "sw_lng": sw_lng,
+                    "ne_lat": ne_lat,
+                    "ne_lng": ne_lng,
+                    "zoom_level": zoom_level,
+                    "TypeRoomOrHouse": roomOrHouse(description) if description else "unknown"
+                }
+                cards_data.append(data)
 
-            cards_data.append(data)
+            except StaleElementReferenceException:
+                logging.warning(f"StaleElementReferenceException encountered at index {index}. Skipping this card.")
+                continue
+            except Exception as e:
+                logging.error(f"Error processing card at index {index}: {e}")
+                continue
 
     except Exception as e:
         logging.error(f"Error al extraer listados: {e}")
@@ -204,32 +216,23 @@ def save_json_data(filepath, data):
     with open(filepath, "w", encoding="utf-8") as json_file:
         json.dump(data, json_file, ensure_ascii=False, indent=4)
 
-# Funciones para guardar y cargar el estado de los DataFrames
-def save_state(df_pending_links, df_visited_links, state_info=None):
-    df_pending_links.to_csv('/home/jjleo/Entorno/Python/airbnb_scraper/pending_links.csv', index=False)
-    df_visited_links.to_csv('/home/jjleo/Entorno/Python/airbnb_scraper/visited_links.csv', index=False)
-    if state_info:
-        with open('/home/jjleo/Entorno/Python/airbnb_scraper/processing_state.json', 'w') as f:
-            json.dump(state_info, f)
-    logging.info("Estado guardado exitosamente.")
-
-def load_state():
-    if os.path.exists('/home/jjleo/Entorno/Python/airbnb_scraperpending_links.csv') and os.path.exists('/home/jjleo/Entorno/Python/airbnb_scraper/visited_links.csv'):
-        df_pending_links = pd.read_csv('pending_links.csv')
-        df_visited_links = pd.read_csv('visited_links.csv')
-        logging.info("Estado cargado exitosamente.")
+# Funciones para el checkpoint
+def load_checkpoint(filepath):
+    if os.path.exists(filepath):
+        with open(filepath, "r", encoding="utf-8") as json_file:
+            try:
+                data = json.load(json_file)
+                return data.get("last_url", "")
+            except json.JSONDecodeError as e:
+                logging.error(f"Error al cargar JSON desde {filepath}: {e}")
+                return ""
     else:
-        df_pending_links = pd.DataFrame(columns=['link', 'visited', 'sw_lat', 'sw_lng', 'ne_lat', 'ne_lng', 'zoom_level'])
-        df_visited_links = pd.DataFrame(columns=['link', 'visited', 'sw_lat', 'sw_lng', 'ne_lat', 'ne_lng', 'zoom_level'])
-        logging.info("No se encontró estado previo. Iniciando desde cero.")
+        return ""
 
-    state_info = {}
-    if os.path.exists('/home/jjleo/Entorno/Python/airbnb_scraper/processing_state.json'):
-        with open('/home/jjleo/Entorno/Python/airbnb_scraper/processing_state.json', 'r') as f:
-            state_info = json.load(f)
-            logging.info("Información del estado de procesamiento cargada.")
-
-    return df_pending_links, df_visited_links, state_info
+def save_checkpoint(filepath, url):
+    data = {"last_url": url}
+    with open(filepath, "w", encoding="utf-8") as json_file:
+        json.dump(data, json_file)
 
 # Variable global para indicar si el usuario ha solicitado detener el programa
 stop_requested = False
@@ -243,246 +246,141 @@ def signal_handler(sig, frame):
 # Función para extraer enlaces siguientes y manejarlos eficientemente
 def extract_data_in_groups(driver, json_files):
     global stop_requested
+
+    # Directorio del archivo maestro
     master_filepath = "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_master_listings.json"
+    master_dir = os.path.dirname(master_filepath)
+
+    # Cargar datos existentes del master
     master_data = load_json_data(master_filepath)
     logging.info(f"El archivo maestro contiene actualmente {len(master_data)} listados.")
 
-    # Si el archivo maestro no existe o está vacío, iniciar desde cero
-    if not master_data:
-        logging.info("El archivo maestro está vacío o no existe. Iniciando desde cero.")
-        # Borrar estados previos si existen
-        if os.path.exists('/home/jjleo/Entorno/Python/airbnb_scraper/pending_links.csv'):
-            os.remove('/home/jjleo/Entorno/Python/airbnb_scraper/pending_links.csv')
-        if os.path.exists('/home/jjleo/Entorno/Python/airbnb_scraper/visited_links.csv'):
-            os.remove('/home/jjleo/Entorno/Python/airbnb_scraper/visited_links.csv')
-        if os.path.exists('/home/jjleo/Entorno/Python/airbnb_scraper/processing_state.json'):
-            os.remove('/home/jjleo/Entorno/Python/airbnb_scraper/processing_state.json')
+    # Convertir master_data a DataFrame
+    if master_data:
+        master_df = pd.DataFrame.from_dict(master_data, orient='index')
+        master_df.reset_index(inplace=True)
+    else:
+        master_df = pd.DataFrame()
 
-    # Cargar estado previo si existe
-    df_pending_links, df_visited_links, state_info = load_state()
+    logging.info(f"El archivo maestro contiene actualmente {len(master_df)} listados.")
 
-    # Variables para controlar la posición en los archivos JSON
-    current_json_index = state_info.get('current_json_index', 0)
-    current_line_index = state_info.get('current_line_index', 0)
+    # Checkpoint mechanism
+    checkpoint_filepath = os.path.join(master_dir, "checkpoint.json")
+    last_processed_url = load_checkpoint(checkpoint_filepath)
+    checkpoint_found = last_processed_url == ""  # If no checkpoint URL, start processing immediately
 
-    # Si no hay enlaces pendientes, cargar los nuevos desde los archivos JSON
-    if df_pending_links.empty:
-        # Barra de progreso para los archivos JSON
-        for idx, json_file in enumerate(tqdm(json_files[current_json_index:], desc="Procesando archivos JSON", unit="archivo", initial=current_json_index)):
-            logging.info(f"Procesando archivo JSON: {json_file}")
+    # Procesar archivos JSON directamente
+    for idx, json_file in enumerate(tqdm(json_files, desc="Procesando archivos JSON", unit="archivo")):
+        logging.info(f"Procesando archivo JSON: {json_file}")
+
+        # Load the data from the JSON file into a DataFrame
+        try:
             with open(json_file, 'r', encoding='utf-8') as file:
                 lines = file.readlines()
-                random.shuffle(lines)  # Mezclar líneas para evitar patrones
+                data_list = [json.loads(line.strip()) for line in lines]
+                df_links = pd.DataFrame(data_list)
+        except Exception as e:
+            logging.error(f"Error al cargar datos del archivo {json_file}: {e}")
+            continue
 
-                # Si estamos reanudando desde una interrupción, ajustar el índice de línea
-                start_line = current_line_index if idx == current_json_index else 0
+        if not checkpoint_found:
+            if last_processed_url in df_links['url'].values:
+                checkpoint_found = True
+                logging.info(f"Checkpoint URL found in file {json_file}. Resuming from there.")
+                # Filter the DataFrame to start from the checkpoint
+                idx_checkpoint = df_links.index[df_links['url'] == last_processed_url].tolist()[0]
+                df_links = df_links.iloc[idx_checkpoint+1:]
+            else:
+                logging.info(f"Checkpoint URL not found in file {json_file}. Skipping this file.")
+                continue  # Skip this file
 
-                # Barra de progreso para las líneas dentro del archivo JSON
-                for line_idx, line in enumerate(tqdm(lines[start_line:], desc=f"Procesando {os.path.basename(json_file)}", unit="línea", leave=False, initial=start_line)):
-                    # Si el usuario solicitó detener el programa, salir del bucle
-                    if stop_requested:
-                        # Guardar estado
-                        state_info = {
-                            'current_json_index': idx + current_json_index,
-                            'current_line_index': line_idx + start_line,
-                        }
-                        save_state(df_pending_links, df_visited_links, state_info)
-                        return df_pending_links, df_visited_links
-
-                    try:
-                        data = json.loads(line.strip())
-                        url_json = data['url']
-                        sw_lat = data['sw_lat']
-                        sw_lng = data['sw_lng']
-                        ne_lat = data['ne_lat']
-                        ne_lng = data['ne_lng']
-                        zoom_level = data['zoom_level']
-
-                        # Verifica si el enlace ya ha sido visitado o está pendiente de ser visitado
-                        if ((not df_visited_links.empty and (df_visited_links['link'] == url_json).any()) or
-                            (not df_pending_links.empty and (df_pending_links['link'] == url_json).any())):
-                            continue
-
-                        # Inicializa los enlaces por visitar para esta página
-                        new_entry = {
-                            'link': url_json,
-                            'visited': False,
-                            'sw_lat': sw_lat,
-                            'sw_lng': sw_lng,
-                            'ne_lat': ne_lat,
-                            'ne_lng': ne_lng,
-                            'zoom_level': zoom_level
-                        }
-                        # Agregar al final del DataFrame
-                        df_pending_links = pd.concat([df_pending_links, pd.DataFrame([new_entry])], ignore_index=True)
-
-                    except json.JSONDecodeError as e:
-                        logging.error(f"Error al decodificar JSON en {json_file}: {e}")
-                        continue
-
-                # Reiniciar el índice de línea después de procesar un archivo
-                current_line_index = 0
-
-        # Reiniciar el índice de archivo después de procesar todos los archivos
-        current_json_index = 0
-
-    # Procesa los enlaces pendientes con una barra de progreso
-    pending_total = len(df_pending_links[df_pending_links['visited'] == False])
-    with tqdm(total=pending_total, desc="Procesando enlaces pendientes", unit="enlace") as pbar:
-        while not df_pending_links[df_pending_links['visited'] == False].empty:
-            # Si el usuario solicitó detener el programa, salir del bucle
+        # Process each URL in the DataFrame
+        for idx_row, row in df_links.iterrows():
             if stop_requested:
-                # Guardar estado
-                state_info = {
-                    'current_json_index': current_json_index,
-                    'current_line_index': current_line_index,
-                }
-                save_state(df_pending_links, df_visited_links, state_info)
                 break
-
-            current_row = df_pending_links[df_pending_links['visited'] == False].iloc[0]
-            current_link = current_row['link']
-            sw_lat = current_row['sw_lat']
-            sw_lng = current_row['sw_lng']
-            ne_lat = current_row['ne_lat']
-            ne_lng = current_row['ne_lng']
-            zoom_level = current_row['zoom_level']
-
-            # Verifica nuevamente si el enlace ya fue visitado
-            if (not df_visited_links.empty and (df_visited_links['link'] == current_link).any()):
-                df_pending_links.loc[df_pending_links['link'] == current_link, 'visited'] = True
-                pbar.update(1)
-                continue
-
-            logging.info(f"Procesando link: {current_link} con coordenadas: {sw_lat}, {sw_lng}, {ne_lat}, {ne_lng}")
-
-            # Verificar si el driver está activo
-            if driver.session_id is None:
-                logging.warning("El driver ha perdido la sesión. Re-iniciando el driver...")
-                driver.quit()
-                driver = setup_webdriver()
-
             try:
-                driver.get(current_link)
-                wait_for_page_load(3)
-                log_memory_usage()
+                url_json = row['url']
+                sw_lat = row['sw_lat']
+                sw_lng = row['sw_lng']
+                ne_lat = row['ne_lat']
+                ne_lng = row['ne_lng']
+                zoom_level = row['zoom_level']
 
-                # Extrae listados de la página actual
-                cards_data = extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level)
+                logging.info(f"Procesando link: {url_json} con coordenadas: {sw_lat}, {sw_lng}, {ne_lat}, {ne_lng}")
 
-                if cards_data:
-                    logging.info(f"Se encontraron {len(cards_data)} nuevos listados.")
-                    for card in cards_data:
-                        listing_id = card["id"]
-                        if listing_id in master_data:
-                            # Comprobar y actualizar campos faltantes o incompletos
-                            for key in card:
-                                existing_value = master_data[listing_id].get(key, None)
-                                new_value = card[key]
+                # Verificar si el driver está activo
+                if driver.session_id is None:
+                    logging.warning("El driver ha perdido la sesión. Re-iniciando el driver...")
+                    driver.quit()
+                    driver = setup_webdriver()
 
-                                # Definir valores por defecto que indican datos incompletos
-                                default_values = ["No location", "No description", "No image", "No price", "No rating", 0.0, 0.0, "unknown", "No link", None]
-
-                                if (existing_value in default_values or existing_value is None) and new_value not in default_values:
-                                    master_data[listing_id][key] = new_value
-                                    logging.info(f"Actualizando campo '{key}' del listado con ID {listing_id}")
-                        else:
-                            # Si el ID no existe, agregarlo
-                            master_data[listing_id] = card
-                            logging.info(f"Agregando nuevo listado con ID {listing_id}")
-
-                    # Guardar el JSON maestro actualizado
-                    save_json_data(master_filepath, master_data)
-                    logging.info(f"Datos extraídos y agregados al archivo maestro: {master_filepath}")
-                    logging.info(f"El archivo maestro contiene actualmente {len(master_data)} listados.")
-                else:
-                    logging.info("No se encontraron nuevos listados en esta página.")
-
-                # Extrae nuevos enlaces de la página actual
                 try:
-                    wait = WebDriverWait(driver, 5)
-                    buttons = wait.until(EC.presence_of_all_elements_located((By.CLASS_NAME, "c1ackr0h")))
-                    for button in buttons:
-                        link = button.get_attribute("href")
-                        if link and (not df_visited_links['link'].eq(link).any()) and (not df_pending_links['link'].eq(link).any()):
-                            new_entry = {
-                                'link': link,
-                                'visited': False,
-                                'sw_lat': sw_lat,
-                                'sw_lng': sw_lng,
-                                'ne_lat': ne_lat,
-                                'ne_lng': ne_lng,
-                                'zoom_level': zoom_level
-                            }
-                            # Agregar al final del DataFrame
-                            df_pending_links = pd.concat([df_pending_links, pd.DataFrame([new_entry])], ignore_index=True)
-                            logging.info(f"Encontrado nuevo enlace: {link}")
-                except TimeoutException:
-                    logging.warning("No se encontraron nuevos botones de enlace en la página actual.")
+                    driver.get(url_json)
+                    wait_for_page_load(3)
+                    log_memory_usage()
 
-                # Marcar el enlace actual como visitado y mover al DataFrame de visitados
-                df_pending_links.loc[df_pending_links['link'] == current_link, 'visited'] = True
-                new_visited = {
-                    'link': current_link,
-                    'visited': True,
-                    'sw_lat': sw_lat,
-                    'sw_lng': sw_lng,
-                    'ne_lat': ne_lat,
-                    'ne_lng': ne_lng,
-                    'zoom_level': zoom_level
-                }
-                df_visited_links = pd.concat([df_visited_links, pd.DataFrame([new_visited])], ignore_index=True)
-                log_memory_usage()
+                    # Extrae listados de la página actual
+                    cards_data = extract_listings(driver, sw_lat, sw_lng, ne_lat, ne_lng, zoom_level)
 
-                # Actualizar la barra de progreso
-                pbar.update(1)
+                    if cards_data:
+                        logging.info(f"Se encontraron {len(cards_data)} nuevos listados.")
 
-                # Guardar estado después de procesar cada enlace
-                state_info = {
-                    'current_json_index': current_json_index,
-                    'current_line_index': current_line_index,
-                }
-                save_state(df_pending_links, df_visited_links, state_info)
+                        # Extract last_comment_date for each listing
+                        for card_data in cards_data:
+                            listing_id = card_data['id']
+                            if listing_id != "unknown":
+                                try:
+                                    last_comment = extract_last_comment_date(listing_id)
+                                    card_data['last_comment_date'] = last_comment
+                                except Exception as e:
+                                    logging.error(f"Error extracting last_comment_date for listing {listing_id}: {e}")
+                                    card_data['last_comment_date'] = None
 
-            except WebDriverException as e:
-                logging.error(f"Error del WebDriver al procesar el enlace {current_link}: {e}")
-                # Re-iniciar el driver en caso de error crítico
-                driver.quit()
-                driver = setup_webdriver()
-                # Marcar como visitado para evitar bloqueos
-                df_pending_links.loc[df_pending_links['link'] == current_link, 'visited'] = True
-                df_visited_links = pd.concat([df_visited_links, pd.DataFrame([{
-                    'link': current_link,
-                    'visited': True,
-                    'sw_lat': sw_lat,
-                    'sw_lng': sw_lng,
-                    'ne_lat': ne_lat,
-                    'ne_lng': ne_lng,
-                    'zoom_level': zoom_level
-                }])], ignore_index=True)
-                pbar.update(1)
-                continue
+                        # Convertir cards_data a DataFrame
+                        cards_df = pd.DataFrame(cards_data)
+
+                        # Merge with master_df
+                        if not master_df.empty:
+                            master_df = pd.concat([master_df, cards_df], ignore_index=True)
+                        else:
+                            master_df = cards_df
+
+                        # Eliminar duplicados basados en 'id'
+                        master_df.drop_duplicates(subset='id', keep='last', inplace=True)
+
+                        # Guardar el JSON maestro actualizado
+                        master_df.set_index('id', inplace=True)
+                        master_df.to_json(master_filepath, orient='index', indent=4, force_ascii=False)
+                        master_df.reset_index(inplace=True)  # Reset index for future concatenations
+                        logging.info(f"Datos extraídos y agregados al archivo maestro: {master_filepath}")
+                        logging.info(f"El archivo maestro contiene actualmente {len(master_df)} listados.")
+                    else:
+                        logging.info("No se encontraron nuevos listados en esta página.")
+
+                    # Save the checkpoint
+                    save_checkpoint(checkpoint_filepath, url_json)
+
+                except WebDriverException as e:
+                    logging.error(f"Error del WebDriver al procesar el enlace {url_json}: {e}")
+                    driver.quit()
+                    driver = setup_webdriver()
+                    continue
+                except Exception as e:
+                    logging.error(f"Error al procesar el enlace {url_json}: {e}")
+                    continue
+
             except Exception as e:
-                logging.error(f"Error al procesar el enlace {current_link}: {e}")
-                # Marcar como visitado para evitar bloqueos
-                df_pending_links.loc[df_pending_links['link'] == current_link, 'visited'] = True
-                df_visited_links = pd.concat([df_visited_links, pd.DataFrame([{
-                    'link': current_link,
-                    'visited': True,
-                    'sw_lat': sw_lat,
-                    'sw_lng': sw_lng,
-                    'ne_lat': ne_lat,
-                    'ne_lng': ne_lng,
-                    'zoom_level': zoom_level
-                }])], ignore_index=True)
-                pbar.update(1)
+                logging.error(f"Error al procesar la fila {idx_row} del archivo {json_file}: {e}")
                 continue
 
-        logging.info("Todos los enlaces de las páginas han sido visitados o el programa ha sido detenido.")
-        master_data = load_json_data(master_filepath)
-        logging.info(f"El archivo maestro contiene actualmente {len(master_data)} listados.")
+        if stop_requested:
+            break
 
-    return df_pending_links, df_visited_links  # Retornamos los DataFrames
+    logging.info("Todos los archivos JSON han sido procesados.")
+
+    logging.info(f"El archivo maestro contiene actualmente {len(master_df)} listados.")
+
+    return master_df  # Retorna los datos maestros actualizados
 
 # Configuración del WebDriver en modo headless y optimizado
 def setup_webdriver():
@@ -512,10 +410,10 @@ def get_zoom_level(filename):
 
 def main():
     global stop_requested
-    
+
     # Registrar el manejador de señal para Ctrl+C
     signal.signal(signal.SIGINT, signal_handler)
-    
+
     # Lista de archivos JSON con niveles de zoom (rutas completas)
     json_files = [
         "/home/jjleo/Entorno/Python/airbnb_scraper/airbnb_urls_bogota_zoom_14.json",
@@ -526,7 +424,7 @@ def main():
 
     # Ordenar por nivel de zoom
     json_files = sorted(json_files, key=get_zoom_level)
-    
+
     # Imprimir el orden de los archivos para verificar
     print("Procesando archivos en el siguiente orden:")
     for f in json_files:
@@ -534,7 +432,7 @@ def main():
 
     driver = setup_webdriver()
     try:
-        df_pending_links, df_visited_links = extract_data_in_groups(driver, json_files)
+        master_df = extract_data_in_groups(driver, json_files)
     except Exception as e:
         logging.error(f"Error en el proceso principal: {e}")
     finally:
@@ -543,7 +441,6 @@ def main():
 
         # Guardar estado final si el programa fue detenido
         if stop_requested:
-            save_state(df_pending_links, df_visited_links)
             logging.info("Estado final guardado después de la interrupción.")
 
 if __name__ == "__main__":

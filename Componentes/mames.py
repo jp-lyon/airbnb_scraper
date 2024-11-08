@@ -1,23 +1,42 @@
-import requests
-import re
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
-class AirbnbScraper:
-    def extract_lat_lon(self, idPublication):
-        attempts = 0
-        success = False
+# Set up the WebDriver (you can use Chrome, Firefox, etc.)
+driver = webdriver.Chrome()
 
-        while not success and attempts < 10:
-            try:
-                URL = 'https://www.airbnb.com.co/rooms/'
-                r = requests.get(URL + str(idPublication))
-                p_lat = re.compile(r'"lat":([-0-9.]+),')
-                p_lon = re.compile(r'"lng":([-0-9.]+),')
-                lat = p_lat.findall(r.text)[0]
-                lon = p_lon.findall(r.text)[0]
-                success = True
-                return float(lat), float(lon)
-            except Exception as e:
-                print(f'No hay coordenada, intento número: {attempts + 1}')
-                print(f'Error: {e}')
-                attempts += 1
-        return 0.0, 0.0
+# Airbnb listing URL (you can replace this with any valid listing URL)
+listing_url = input("Enter the Airbnb listing URL: ")
+
+# Open the listing page
+driver.get(listing_url)
+
+# Wait for the page elements to load
+wait = WebDriverWait(driver, 10)
+
+try:
+    # Extract the title
+    title = wait.until(EC.presence_of_element_located((By.TAG_NAME, 'h1'))).text
+
+    # Extract the price per night
+    price = wait.until(EC.presence_of_element_located(
+        (By.CSS_SELECTOR, 'span[class*="Text__"]')
+    )).text
+
+    # Extract the description
+    description = wait.until(EC.presence_of_element_located(
+        (By.CSS_SELECTOR, 'div[data-section-id="DESCRIPTION_DEFAULT"]')
+    )).text
+
+    # Print the extracted data
+    print("Title:", title)
+    print("Price:", price)
+    print("Description:", description)
+
+except Exception as e:
+    print("An error occurred while extracting data:", e)
+
+finally:
+    # Close the WebDriver
+    driver.quit()
